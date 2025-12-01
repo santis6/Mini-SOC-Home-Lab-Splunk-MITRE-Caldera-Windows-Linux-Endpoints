@@ -127,14 +127,15 @@ ip -4 addr show
 ```
 #### Verificar que splunk esté escuchando en los puertos habituales (8000, 8089, 9997)
 ```
-sudo ss -tulpen | grep -E '8000|8089|9997' || sudo netstat -tulpen | grep -E '8000|8089|9997'
+sudo ss -tulpen | grep -E '8000|8089|9997' |
 ```
 
 `ip -4 addr show ...`: imprime las IP IPv4 de la VM.
 
-`ss -tulpen | grep ...`: muestra sockets TCP/UDP escuchando y filtra los puertos de Splunk; netstat es alternativa.
+`ss -tulpen | grep ...`: muestra sockets TCP/UDP escuchando y filtra los puertos de Splunk.
 
-<img width="1280" height="226" alt="ip y puertos escuchando" src="https://github.com/user-attachments/assets/553ed7d4-1229-46cb-878f-bbace1e26d4b" />
+<img width="829" height="240" alt="ip adress" src="https://github.com/user-attachments/assets/0f8e3af8-655a-4f0c-bf98-2897ba7765f1" />
+
 
 ---
 
