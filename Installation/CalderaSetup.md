@@ -1,171 +1,289 @@
-# 04 - MITRE Caldera — Instalación en Ubuntu Server (Servidor de ataques)
+# 04 - MITRE Caldera — Despliegue en Docker (Servidor de ataques)
 
 > MITRE Caldera es una plataforma para ejecutar simulaciones de adversarios (ATAQUES automatizados) basados en MITRE ATT&CK.
 
 > Es fundamental para tu Mini SOC porque genera actividad realista en los endpoints Linux y Windows para luego analizarla en Splunk.
 
+### Vamos a desplegar Caldera MITRE en Docker, para evitar problemas de compatibilidad y conflictos con dependencias.
 
-## 4.2 Instalar dependencias necesarias
+> Beneficios: aislamiento, reproducibilidad y fácil limpieza si algo falla.
 
-### Caldera requiere Python 3.8+ y otras utilidades.
-```
-sudo apt install -y python3 python3-venv python3-pip git
-```
-
-#### Instalamos Python 3, pip, virtualenv y Git para clonar el repositorio de Caldera.
-
-<img width="1279" height="575" alt="instalacion pyth3 venv git pip" src="https://github.com/user-attachments/assets/3ca35cc5-4402-4e51-aaa8-c2c071e48789" />
+## 5.0 Requisitos previos (en el Ubuntu Server donde vas a correr Docker)
+- Ubuntu Server con al menos 2–4 GB RAM disponible para el contenedor (más si vas a atacar muchas máquinas).  
 
 
+<img width="647" height="63" alt="free memory" src="https://github.com/user-attachments/assets/8912739a-0962-4901-878c-39e8899d67c0" />
 
---- 
 
-
-## 4.3 Crear directorio para Caldera
-```
-mkdir ~/caldera
-```
-```
-cd ~/caldera
-```
-#### Creamos un directorio para caldera, y nos movemos al mismo.
 
 ---
 
-## 4.4 Clonar MITRE Caldera desde GitHub
+## 5.1 Instalar Docker Engine (comandos + explicación)
 
+
+# Actualizar lista de paquetes
 ```
-git clone https://github.com/mitre/caldera.git
+sudo apt update
+```
+# Instalar paquetes que permiten usar repos apt sobre HTTPS
+```
+sudo apt install -y ca-certificates curl gnupg lsb-release
+```
+# Añadir la clave GPG oficial de Docker
+```
+sudo mkdir -p /etc/apt/keyrings
+```
+```
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+```
+# Añadir el repo estable de Docker
+```
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+```
+# Actualizar e instalar docker engine y docker-compose plugin
+```
+sudo apt update
+```
+```
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 ```
 
+`apt install ca-certificates ...`: prepara el sistema para repositorios HTTPS.
 
-#### Con esto descargamos el código fuente oficial de Caldera en el servidor.
+`gpg --dearmor`: guarda la clave de Docker para verificar paquetes.
 
-<img width="674" height="127" alt="git clone caldera" src="https://github.com/user-attachments/assets/8d7f94e0-2450-42db-84f1-4f4aca814718" />
+`docker-ce docker-compose-plugin`: instala Docker y el plugin docker compose.
+
+<img width="395" height="34" alt="docker version" src="https://github.com/user-attachments/assets/174cca83-fb9b-44e1-95a1-0c3f21e012c5" />
+
+
 
 ---
 
-
-
-## 4.5 Crear entorno virtual de Python
+Verificar Docker funciona:
 ```
-python3 -m venv venv
+sudo docker run --rm hello-world
 ```
+Esto descarga y ejecuta un contenedor de prueba; confirma que Docker está operativo.
 
-#### Creamos un entorno virtual aislado para evitar conflictos con otras aplicaciones del sistema.
+<img width="636" height="450" alt="docker hello world" src="https://github.com/user-attachments/assets/d4b7ed2d-c1cc-4428-9ebf-6268a05d1636" />
+
+
 
 ---
 
-## 4.6 Activar el entorno virtual
+## 5.2 Clonar Caldera 4.2.0 (fuente estable para el contenedor)
 ```
-source venv/bin/activate
+cd /opt
 ```
-
-#### Activa el entorno virtual para instalar dependencias ahí dentro.
-
-## 4.7 Instalar las dependencias de Caldera
 ```
-pip3 install -r requirements.txt
+sudo git clone --branch 4.2.0 https://github.com/mitre/caldera.git caldera-4.2
 ```
+```
+sudo chown -R $USER:$USER caldera-4.2.0
+```
+```
+cd caldera-4.2
+```
+### Clonamos la rama 4.2 (evitamos la v5 que requiere build frontend).
 
-#### Instala todas las librerías necesarias para que Caldera funcione.
+`chown` para que tu usuario pueda construir la imagen sin sudo todo el tiempo.
 
+<img width="1003" height="87" alt="archivos caldera4 2" src="https://github.com/user-attachments/assets/f894fad7-cb1a-4dc7-b697-d79ebc87f396" />
 
-<img width="867" height="314" alt="install requirements" src="https://github.com/user-attachments/assets/42568f3e-9404-4c74-826e-b3b90bf0ff0c" />
 
 ---
 
-# 4.8 Ejecutar Caldera por primera vez
+## 5.3 Crear Dockerfile para Caldera 4.2
+> NOTA: Al clonar el repo encontramos un Dockerfile, no borrarlo, crear uno nuevo con otro nombre, ie: Dockerfile.lab
+### Crea el archivo Dockerfile dentro de /opt/caldera-4.2 con este contenido:
+```
+#Dockerfile para Caldera 4.2 (base Python slim)
+FROM python:3.10-slim
+
+#Variables de entorno (evitan prompts)
+ENV PYTHONUNBUFFERED=1
+WORKDIR /opt/caldera
+
+#Dependencias del sistema necesarias
+RUN apt-get update && apt-get install -y python3-dev git build-essential && rm -rf /var/lib/apt/lists/*
+
+#Copiar el código (si construís desde local) o clonar en el build
+COPY . /opt/caldera
+
+#Crear y activar venv, instalar dependencias
+RUN python3 -m venv /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip setuptools wheel && \
+    /opt/venv/bin/pip install -r /opt/caldera/requirements.txt
+
+#Exponer puerto HTTP de Caldera
+EXPOSE 8888
+
+#Comando por defecto para iniciar Caldera (modo inseguro para lab)
+CMD ["/opt/venv/bin/python", "/opt/caldera/server.py", "--insecure"]
 
 ```
-python3 server.py --insecure
+`python:3.10-slim`: imagen base ligera.
+
+`COPY . /opt/caldera`: copia tu repo (con la rama 4.2) al container.
+
+Se crea un venv y se instalan requerimientos dentro del contenedor.
+
+`CMD` arranca Caldera en modo --insecure (solo para laboratorio).
+
+<img width="1280" height="800" alt="dockerfile lab" src="https://github.com/user-attachments/assets/f0a97066-c228-4eec-b237-4af340125ee1" />
+
+
+---
+
+## 5.4 Crear docker-compose.lab.yml (opcional pero recomendado)
+
+### Archivo docker-compose.lab.yml en /opt/caldera-4.2:
+```
+version: "3.8"
+services:
+  caldera:
+    build:
+      context: .
+      dockerfile: dockerfile.lab
+    container_name: caldera4
+    restart: unless-stopped
+    ports:
+      - "8888:8888"   # exponer UI de Caldera
+    volumes:
+      - ./data:/opt/caldera/data  # persistir datos de Caldera
+    environment:
+      - PYTHONUNBUFFERED=1
 ```
 
+`build: .` construye la imagen desde el Dockerfile local.
 
-Iniciamos el servidor Caldera.
+Mapea puerto 8888 del container al host.
 
---insecure: desactiva HTTPS para simplificar el laboratorio (solo recomendado en ambientes internos).
+volumes guarda data para persistencia de campañas/agentes.
 
-4.9 Acceder a la interfaz web
-
-Una vez iniciado, verás algo así en la terminal:
-
-Caldera running on http://0.0.0.0:8888
-Default credentials: red / admin
+<img width="1268" height="223" alt="docker compose" src="https://github.com/user-attachments/assets/c47af2ec-b88a-46ba-8e7c-121b67566acf" />
 
 
-📌 Acceder desde tu navegador:
 
-http://IP_DEL_SERVIDOR:8888
+---
+
+## 5.5 Construir la imagen y levantar Caldera
+
+## Desde /opt/caldera-4.2:
+
+### Construir la imagen (puede tardar unos minutos)
+```
+sudo docker compose -f docker-compose.lab.yml --progress=plain build caldera
+```
+### Levantar el servicio en background
+```
+sudo docker compose -f docker-compose.lab.yml up -d
+```
+
+`docker compose build`: compila la imagen Docker con Caldera y sus dependencias.
+
+`docker compose up -d`: levanta el servicio en segundo plano.
 
 
-Credenciales por defecto:
+
+📸 [INSERTAR CAPTURA: salida de docker compose build con final "Successfully built" o similar]
+
+
+
+Verificar que el container corre:
+
+
+
+sudo docker ps --filter "name=caldera4"
+📸 [INSERTAR CAPTURA: salida de docker ps mostrando caldera4 con STATUS Up]
+
+5.6 Acceder a la UI de Caldera
+Abrí en tu navegador (desde máquina host o donde tengas acceso a la IP del servidor):
+
+cpp
+Copy code
+http://<IP_DEL_SERVIDOR>:8888
+Credenciales por defecto (Caldera 4.2):
 
 Usuario: red
 
 Contraseña: admin
 
-📸 Inserta una captura aquí
-Captura recomendada:
-Pantalla de login de Caldera en el navegador.
+📸 [INSERTAR CAPTURA: Caldera UI en el navegador mostrando login o dashboard]
 
-4.10 Crear un servicio systemd para que Caldera arranque fácil (opcional pero recomendado)
+5.7 Logs y troubleshooting (comandos útiles)
+Ver logs del contenedor:
 
-👇 Si querés iniciar Caldera sin escribir comandos largos.
+bash
+Copy code
+sudo docker logs -f caldera4
+-f sigue los logs en tiempo real.
 
-Crear archivo de servicio:
+Entrar al shell del contenedor (por si querés debug):
 
-sudo nano /etc/systemd/system/caldera.service
+bash
+Copy code
+sudo docker exec -it caldera4 /bin/bash
+# una vez dentro podés activar el venv y correr comandos:
+source /opt/venv/bin/activate
+python server.py --insecure
+Parar / iniciar / destruir:
 
+bash
+Copy code
+# Parar
+sudo docker compose stop
 
-Pegar dentro:
+# Iniciar
+sudo docker compose start
 
-[Unit]
-Description=MITRE Caldera Server
-After=network.target
+# Bajar y eliminar containers (pero conservar imagen y volumen)
+sudo docker compose down
 
-[Service]
-User=$USER
-WorkingDirectory=/home/tu_usuario/caldera/caldera
-ExecStart=/home/tu_usuario/caldera/caldera/venv/bin/python3 server.py --insecure
-Restart=always
+# Borrar imagen construida (si querés limpiar)
+sudo docker image rm caldera4
+📸 [INSERTAR CAPTURA: salida de docker logs -f caldera4 mostrando "Caldera running on http://0.0.0.0:8888"]
 
-[Install]
-WantedBy=multi-user.target
+5.8 Conectar Caldera a la red de laboratorio (Host-Only / Bridge)
+Si querés que Caldera sea accesible sólo en la red interna (Host-Only), cambiá ports en docker-compose.yml por network_mode: "host" solo si el servidor corre directamente en la VM y no conflictúa con otros servicios.
 
+Ejemplo alternativo (usar host networking):
 
-(Reemplazar tu_usuario por tu usuario real de Ubuntu.)
+yaml
+Copy code
+services:
+  caldera:
+    build: .
+    network_mode: "host"
+    ...
+network_mode: host hace que el contenedor use la red del host; http://<host_ip>:8888 funcionará sin mapeo de puertos.
 
-Activar el servicio:
-sudo systemctl daemon-reload
-sudo systemctl enable caldera
-sudo systemctl start caldera
+Usar con precaución (no exponer al internet).
 
+5.9 Integración con Splunk (generar logs accionables)
+Ejecutá campañas contra tus endpoints desde Caldera UI.
 
-¿Qué hace?
+Los endpoints (UF + Sysmon) generarán logs que Splunk indexará.
 
-daemon-reload: recarga servicios.
+Si Caldera y Splunk corren en la misma VM, no hay conflicto de puertos (Splunk 8000/9997, Caldera 8888).
 
-enable: arranca con el sistema.
+Recomendación: probar una campaña pequeña y validar en Splunk con:
 
-start: inicia Caldera ahora mismo.
+spl
+Copy code
+index=linux_logs OR index=windows_logs earliest=-15m
+📸 [INSERTAR CAPTURA: Caldera ejecutando campaign + Splunk search mostrando eventos]
 
-4.12 Verificar estatus del servicio
-sudo systemctl status caldera
+5.10 Limpieza / Recuperar espacio
+Si querés parar y eliminar todo rápidamente:
 
+bash
+Copy code
+sudo docker compose down --volumes --rmi local
+--volumes elimina volúmenes persistentes de datos.
 
-¿Qué hace?
-
-Muestra si Caldera está corriendo sin errores.
-
-📸 Inserta una captura aquí
-Captura recomendada: salida OK del status (Active: running).
-
-4.13 Confirmar conectividad con endpoints
-Desde un endpoint Linux/Windows:
-ping <IP_DEL_SERVIDOR_CALDERA>
-
-
-¿Qué hace?
-
-Comprueba que el endpoint puede alcanzar al servidor Caldera para ejecutar agentes.
+--rmi local elimina las imágenes construidas localmente.
